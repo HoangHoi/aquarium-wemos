@@ -27,8 +27,17 @@ OTHER DEALINGS IN THE SOFTWARE.
  * Modified by RoboJay
  */
 
+/**
+ * Add function join channel by Hoang Hoi
+ */
+
 #include <SocketIOClient.h>
-#define ioDebug true
+
+#ifdef DEBUG
+#define ECHO(m) Serial.println(m)
+#else
+#define ECHO(m)
+#endif
 
 SocketIOClient::SocketIOClient() {
     for (int i = 0; i < MAX_ON_HANDLERS; i++) {
@@ -36,16 +45,223 @@ SocketIOClient::SocketIOClient() {
     }
 }
 
+void SocketIOClient::setChannel(String newChannel) {
+    channel = newChannel;
+}
+
 bool SocketIOClient::connect(String thehostname, int theport) {
     thehostname.toCharArray(hostname, MAX_HOSTNAME_LEN);
     port = theport;
 
-    if (!internets.connect(hostname, theport)) {
+    if (handshake() && joinChannel() && connectViaSocket()) {
+        return true;
+    }
+    
+    return false;
+}
+
+bool SocketIOClient::handshake() {
+    if (!beginConnect()) {
         return false;
     }
 
-    sendHandshake(hostname);
+    ECHO(F("[handshake] Begin send Handshake"));
+    sendHandshake();
+
+    if (!waitForInput()) {
+        ECHO(F("[handshake] Time out"));
+        return false;
+    }
+
+    ECHO(F("[handshake] Read Handshake"));
     return readHandshake();
+}
+
+bool SocketIOClient::readHandshake() {
+    // check for happy "HTTP/1.1 200" response
+    if (!checkResponseStatus(200)) {
+        return false;
+    }
+
+    eatHeader();
+    if (!readSid()) {
+        return false;
+    }
+
+    stopConnect();
+}
+
+bool SocketIOClient::joinChannel() {
+    ECHO(channel);
+    if (channel.length() == 0) {
+        return true;
+    }
+
+    if (!beginConnect()) {
+        return false;
+    }
+
+    sendRequestJoinChannel();
+    
+    if (!waitForInput()) {
+        ECHO(F("[joinChannel] Time out"));
+        return false;
+    }
+
+    if (!checkResponseStatus(200)) {
+        return false;
+    }
+
+    stopConnect();
+}
+
+void SocketIOClient::sendRequestJoinChannel() {
+    ECHO("[sendRequestJoinChannel] Join channel: " + channel);
+    String body = String(channel.length() + 30);
+    body += ":42[\"subscribe\",{\"channel\":\"";
+    body += channel;
+    body += "\"}]";
+
+    internets.print(F("POST /socket.io/?EIO=3&transport=polling&sid="));
+    internets.print(sid);
+    internets.println(F(" HTTP/1.1"));
+    internets.print(F("Host: "));
+    internets.print(hostname);
+    internets.print(F(":"));
+    internets.println(port);
+    internets.println(F("Origin: ArduinoSocketIOClient"));
+    internets.println(F("Content-Type: text/plain;charset=UTF-8"));
+    internets.print(F("Content-Length: "));
+    internets.println(body.length());
+    internets.println(F("Connexion: keep-alive\r\n"));
+    internets.println(body + "\r\n");
+
+    // request += "43:42[\"subscribe\",{\"channel\":\"feed-the-fish\"}]\r\n\r\n";
+}
+
+bool SocketIOClient::connectViaSocket() {
+    if (!beginConnect()) {
+        return false;
+    }
+
+    ECHO(F("[connectViaSocket] Send connect to Websocket"));
+
+    sendConnectToSocket();
+    if (!waitForInput()) {
+        return false;
+    }
+
+    if (!checkResponseStatus(101)) {
+        ECHO(F("[connectViaSocket] Updrage to Websocket failed"));
+        return false;
+    }
+
+    ECHO(F("[connectViaSocket] Updrage to Websocket successful"));
+    readLine();
+    readLine();
+    readLine();
+    for (int i = 0; i < 28; i++) {
+        key[i] = databuffer[i + 22]; //key contains the Sec-WebSocket-Accept, could be used for verification
+    }
+
+    ECHO(F("[connectViaSocket] Read Sec-WebSocket-Accept key successful"));
+    ECHO("[connectViaSocket] Key: " + String(key));
+
+    eatHeader();
+
+    /*
+    Generating a 32 bits mask requiered for newer version
+    Client has to send "52" for the upgrade to websocket
+     */
+    randomSeed(analogRead(0));
+    String mask = "";
+    String masked = "52";
+    String message = "52";
+    for (int i = 0; i < 4; i++) { //generate a random mask, 4 bytes, ASCII 0 to 9
+        char a = random(48, 57);
+        mask += a;
+    }
+    for (int i = 0; i < message.length(); i++) {
+        masked[i] = message[i] ^ mask[i % 4]; //apply the "mask" to the message ("52")
+    }
+
+    internets.print((char) 0x81); //has to be sent for proper communication
+    internets.print((char) 130); //size of the message (2) + 128 because message has to be masked
+    internets.print(mask);
+    internets.print(masked);
+
+    monitor(); // treat the response as input
+    return true;
+}
+
+bool SocketIOClient::checkResponseStatus(int status) {
+    // check for happy "HTTP/1.1 200" response
+    readLine();
+    if (atoi(&databuffer[9]) != status) {
+        while (internets.available()) readLine();
+        internets.stop();
+        return false;
+    }
+
+    return true;
+}
+
+bool SocketIOClient::readSid() {
+    readLine();
+    String tmp = databuffer;
+
+    int sidindex = tmp.indexOf("sid");
+    if (sidindex < 0) {
+        ECHO(F("[readSid] SID not exist"));
+        return false;
+    }
+
+    int sidendindex = tmp.indexOf("\"", sidindex + 6);
+    int count = sidendindex - sidindex - 6;
+
+    for (int i = 0; i < count; i++) {
+        sid[i] = databuffer[i + sidindex + 6];
+    }
+
+    ECHO("[readSid] SID: " + String(sid));
+    return true;
+}
+
+bool SocketIOClient::beginConnect() {
+    if (!internets.connect(hostname, port)) {
+        ECHO(F("[beginConnect] Connect failed"));
+        return false;
+    }
+
+    ECHO(F("[beginConnect] Connect successful"));
+    return true;
+}
+
+bool SocketIOClient::stopConnect() {
+    while (internets.available()) {
+        readLine();
+    }
+
+    internets.stop();
+    delay(100);
+    ECHO(F("[stopConnect] Connect was stopped"));
+    return true;
+}
+
+void SocketIOClient::sendConnectToSocket() {
+    internets.print(F("GET /socket.io/1/websocket/?transport=websocket&b64=true&sid="));
+    internets.print(sid);
+    internets.print(F(" HTTP/1.1\r\n"));
+    internets.print(F("Host: "));
+    internets.print(hostname);
+    internets.print("\r\n");
+    internets.print(F("Origin: ArduinoSocketIOClient\r\n"));
+    internets.print(F("Sec-WebSocket-Key: "));
+    internets.print(sid);
+    internets.print("\r\n");
+    internets.print(F("Sec-WebSocket-Version: 13\r\n"));
+    internets.print(F("Upgrade: websocket\r\n")); // must be camelcase ?!
+    internets.println(F("Connection: Upgrade\r\n"));
 }
 
 bool SocketIOClient::connectHTTP(String thehostname, int theport) {
@@ -65,7 +281,7 @@ bool SocketIOClient::reconnect(String thehostname, int theport) {
         return false;
     }
 
-    sendHandshake(hostname);
+    sendHandshake();
     return readHandshake();
 }
 
@@ -86,38 +302,38 @@ void SocketIOClient::eventHandler(int index) {
         sizemsg = databuffer[index + 2]; // 126-255 byte
         index += 1; // index correction to start
     }
-    if (ioDebug) Serial.print("[eventHandler] Message size = "); //Can be used for debugging
-    if (ioDebug) Serial.println(sizemsg); //Can be used for debugging
+
+    ECHO("[eventHandler] Message size = " + String(sizemsg));
+
     for (int i = index + 2; i < index + sizemsg + 2; i++) {
         rcvdmsg += (char) databuffer[i];
     }
-    if (ioDebug) Serial.print("[eventHandler] Received message = "); //Can be used for debugging
-    if (ioDebug) Serial.println(rcvdmsg); //Can be used for debugging
+
+    ECHO("[eventHandler] Received message = " + String(rcvdmsg));
+
     switch (rcvdmsg[0]) {
         case '2':
-            if (ioDebug) Serial.println("[eventHandler] Ping received - Sending Pong");
+            ECHO("[eventHandler] Ping received - Sending Pong");
             heartbeat(1);
             break;
         case '3':
-            if (ioDebug) Serial.println("[eventHandler] Pong received - All good");
+            ECHO("[eventHandler] Pong received - All good");
             break;
         case '4':
             switch (rcvdmsg[1]) {
                 case '0':
-                    if (ioDebug) Serial.println("[eventHandler] Upgrade to WebSocket confirmed");
+                    ECHO("[eventHandler] Upgrade to WebSocket confirmed");
                     break;
                 case '2':
                     id = rcvdmsg.substring(4, rcvdmsg.indexOf("\","));
-                    if (ioDebug) {
-                        Serial.println("[eventHandler] id = " + id);
-                    }
+                    ECHO("[eventHandler] id = " + id);
+
                     data = rcvdmsg.substring(rcvdmsg.indexOf("\",") + 3, rcvdmsg.length() - 2);
-                    if (ioDebug) {
-                        Serial.println("[eventHandler] data = " + data);
-                    }
+                    ECHO("[eventHandler] data = " + data);
+
                     for (uint8_t i = 0; i < onIndex; i++) {
                         if (id == onId[i]) {
-                            if (ioDebug) Serial.println("[eventHandler] Found handler = " + String(i));
+                            ECHO("[eventHandler] Found handler = " + String(i));
                             (*onFunction[i])(data);
                         }
                     }
@@ -134,12 +350,12 @@ bool SocketIOClient::monitor() {
     static unsigned long pingTimer = 0;
 
     if (!internets.connected()) {
-        if (ioDebug) Serial.println("[monitor] Client not connected.");
+        ECHO("[monitor] Client not connected.");
         if (connect(hostname, port)) {
-            if (ioDebug) Serial.println("[monitor] Connected.");
+            ECHO("[monitor] Connected.");
             return true;
         } else {
-            if (ioDebug) Serial.println("[monitor] Can't connect. Aborting.");
+            ECHO("[monitor] Can't connect. Aborting.");
         }
     }
 
@@ -169,10 +385,12 @@ bool SocketIOClient::monitor() {
     return false;
 }
 
-void SocketIOClient::sendHandshake(char hostname[]) {
+void SocketIOClient::sendHandshake() {
     internets.println(F("GET /socket.io/1/?transport=polling&b64=true HTTP/1.1"));
     internets.print(F("Host: "));
-    internets.println(hostname);
+    internets.print(hostname);
+    internets.print(":");
+    internets.println(port);
     internets.println(F("Origin: Arduino\r\n"));
 }
 
@@ -191,100 +409,6 @@ void SocketIOClient::eatHeader(void) {
             break;
         }
     }
-}
-
-bool SocketIOClient::readHandshake() {
-    if (!waitForInput()) {
-        return false;
-    }
-    // check for happy "HTTP/1.1 200" response
-    readLine();
-    if (atoi(&databuffer[9]) != 200) {
-        while (internets.available()) readLine();
-        internets.stop();
-        return false;
-    }
-    eatHeader();
-    readLine();
-    String tmp = databuffer;
-
-    int sidindex = tmp.indexOf("sid");
-    int sidendindex = tmp.indexOf("\"", sidindex + 6);
-    int count = sidendindex - sidindex - 6;
-
-    for (int i = 0; i < count; i++) {
-        sid[i] = databuffer[i + sidindex + 6];
-    }
-    if (ioDebug) Serial.print(F("[readHandshake] Connected. SID="));
-    if (ioDebug) Serial.println(sid); // sid:transport:timeout
-
-    while (internets.available()) readLine();
-    internets.stop();
-    delay(1000);
-
-    // reconnect on websocket connection
-    if (!internets.connect(hostname, port)) {
-        if (ioDebug) Serial.print(F("[readHandshake] Websocket failed."));
-        return false;
-    }
-    if (ioDebug) Serial.println(F("[readHandshake] Connecting via Websocket"));
-
-    internets.print(F("GET /socket.io/1/websocket/?transport=websocket&b64=true&sid="));
-    internets.print(sid);
-    internets.print(F(" HTTP/1.1\r\n"));
-    internets.print(F("Host: "));
-    internets.print(hostname);
-    internets.print("\r\n");
-    internets.print(F("Origin: ArduinoSocketIOClient\r\n"));
-    internets.print(F("Sec-WebSocket-Key: "));
-    internets.print(sid);
-    internets.print("\r\n");
-    internets.print(F("Sec-WebSocket-Version: 13\r\n"));
-    internets.print(F("Upgrade: websocket\r\n")); // must be camelcase ?!
-    internets.println(F("Connection: Upgrade\r\n"));
-
-    if (!waitForInput()) {
-        return false;
-    }
-    readLine();
-    if (atoi(&databuffer[9]) != 101) { // check for "HTTP/1.1 101 response, means Updrage to Websocket OK
-        while (internets.available()) {
-            readLine();
-        }
-        internets.stop();
-        return false;
-    }
-    readLine();
-    readLine();
-    readLine();
-    for (int i = 0; i < 28; i++) {
-        key[i] = databuffer[i + 22]; //key contains the Sec-WebSocket-Accept, could be used for verification
-    }
-    eatHeader();
-
-    /*
-    Generating a 32 bits mask requiered for newer version
-    Client has to send "52" for the upgrade to websocket
-     */
-    randomSeed(analogRead(0));
-    String mask = "";
-    String masked = "52";
-    String message = "52";
-    for (int i = 0; i < 4; i++) { //generate a random mask, 4 bytes, ASCII 0 to 9
-        char a = random(48, 57);
-        mask += a;
-    }
-    for (int i = 0; i < message.length(); i++) {
-        masked[i] = message[i] ^ mask[i % 4]; //apply the "mask" to the message ("52")
-    }
-
-    internets.print((char) 0x81); //has to be sent for proper communication
-    internets.print((char) 130); //size of the message (2) + 128 because message has to be masked
-    internets.print(mask);
-    internets.print(masked);
-
-    monitor(); // treat the response as input
-    return true;
 }
 
 void SocketIOClient::getREST(String path) {
@@ -344,9 +468,9 @@ void SocketIOClient::readLine() {
     while (internets.available() && (dataptr < &databuffer[DATA_BUFFER_LEN - 2])) {
         char c = internets.read();
         if (c == 0) {
-            if (ioDebug) Serial.print("");
+            ECHO("");
         } else if (c == 255) {
-            if (ioDebug) Serial.println("");
+            ECHO("");
         } else if (c == '\r') {
             ;
         } else if (c == '\n') break;
@@ -357,11 +481,11 @@ void SocketIOClient::readLine() {
 
 void SocketIOClient::emit(String id, String data) {
     String message = "42[\"" + id + "\"," + data + "]";
-    if (ioDebug) Serial.println("[emit] " + message);
+    ECHO("[emit] " + message);
     int header[10];
     header[0] = 0x81;
     int msglength = message.length();
-    if (ioDebug) Serial.println("[emit] " + String(msglength));
+    ECHO("[emit] " + String(msglength));
     randomSeed(analogRead(0));
     String mask = "";
     String masked = message;

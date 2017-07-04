@@ -29,14 +29,16 @@ OTHER DEALINGS IN THE SOFTWARE.
  * Modifications by RoboJay
  */
 
+/**
+ * Add function join channel by Hoang Hoi
+ */
+
+
 #ifndef SocketIoClient_H
 #define SocketIoClient_H
 
 #include "Arduino.h"
-
-#ifndef ioDebug
-#define ioDebug true
-#endif
+#define DEBUG true
 
 #ifdef W5100
 #include <Ethernet.h>
@@ -81,6 +83,7 @@ public:
     void disconnect();
     bool reconnect(String thehostname, int port = 80);
     bool monitor();
+    void setChannel(String newChannel);
     void emit(String id, String data);
     void on(String id, functionPointer f);
     void heartbeat(int select);
@@ -89,9 +92,19 @@ public:
     void putREST(String path, String type, String data);
     void deleteREST(String path);
 private:
+    bool checkResponseStatus(int status);
+    bool readSid();
+    bool stopConnect();
+    bool beginConnect();
     void eventHandler(int index);
-    void sendHandshake(char hostname[]);
-
+    bool handshake();
+    void sendHandshake();
+    
+    bool connectViaSocket();
+    bool joinChannel();
+    void sendRequestJoinChannel();
+    void sendConnectToSocket();
+    
     //EthernetClient internets;				//For ENC28J60 or W5100
     WiFiClient internets; //For ESP8266
     bool readHandshake();
@@ -108,6 +121,7 @@ private:
 
     functionPointer onFunction[MAX_ON_HANDLERS];
     String onId[MAX_ON_HANDLERS];
+    String channel;
     uint8_t onIndex = 0;
 };
 

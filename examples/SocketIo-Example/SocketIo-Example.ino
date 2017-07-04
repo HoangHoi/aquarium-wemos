@@ -78,8 +78,8 @@ void setup() {
     setupNetwork();
 
     attachInterrupt(digitalPinToInterrupt(ButtonPin), click, FALLING);
-
-    socket.on("light", light);
+    socket.setChannel("feed-the-fish");
+    socket.on("App\\Events\\FeedTheFish", light);
 
     socket.connect(host, port);
 }
