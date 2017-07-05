@@ -39,6 +39,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define ECHO(m)
 #endif
 
+#define ORIGIN F("Origin: ArduinoSocketIOClient\r\n")
+
 SocketIOClient::SocketIOClient() {
     for (int i = 0; i < MAX_ON_HANDLERS; i++) {
         onId[i] = "";
@@ -56,7 +58,7 @@ bool SocketIOClient::connect(String thehostname, int theport) {
     if (handshake() && joinChannel() && connectViaSocket()) {
         return true;
     }
-    
+
     return false;
 }
 
@@ -102,7 +104,7 @@ bool SocketIOClient::joinChannel() {
     }
 
     sendRequestJoinChannel();
-    
+
     if (!waitForInput()) {
         ECHO(F("[joinChannel] Time out"));
         return false;
@@ -122,19 +124,35 @@ void SocketIOClient::sendRequestJoinChannel() {
     body += channel;
     body += "\"}]";
 
-    internets.print(F("POST /socket.io/?EIO=3&transport=polling&sid="));
-    internets.print(sid);
-    internets.println(F(" HTTP/1.1"));
-    internets.print(F("Host: "));
-    internets.print(hostname);
-    internets.print(F(":"));
-    internets.println(port);
-    internets.println(F("Origin: ArduinoSocketIOClient"));
-    internets.println(F("Content-Type: text/plain;charset=UTF-8"));
-    internets.print(F("Content-Length: "));
-    internets.println(body.length());
-    internets.println(F("Connexion: keep-alive\r\n"));
-    internets.println(body + "\r\n");
+    String request = "";
+    request += F("POST /socket.io/?EIO=3&transport=polling&sid=");
+    request += sid;
+    request += F(" HTTP/1.1\r\n");
+    if (port == 80) {
+        request += F("Host: ");
+        request += hostname;
+        request += F("\r\n");
+    } else {
+        request += F("Host: ");
+        request += hostname;
+        request += F(":");
+        request += port;
+        request += F("\r\n");
+    }
+
+    request += ORIGIN;
+    request += F("Content-Type: text/plain;charset=UTF-8\r\n");
+    request += F("Content-Length: ");
+    request += body.length();
+    request += F("\r\n");
+    request += F("Connexion: keep-alive\r\n\r\n");
+    request += body;
+    request += "\r\n\r\n";
+
+    ECHO(F("\r\n[sendRequestJoinChannel] Send request........................."));
+    ECHO(request);
+    ECHO(F("[sendRequestJoinChannel] .........................send request done\r\n"));
+    internets.print(request);
 
     // request += "43:42[\"subscribe\",{\"channel\":\"feed-the-fish\"}]\r\n\r\n";
 }
@@ -249,19 +267,34 @@ bool SocketIOClient::stopConnect() {
 }
 
 void SocketIOClient::sendConnectToSocket() {
-    internets.print(F("GET /socket.io/1/websocket/?transport=websocket&b64=true&sid="));
-    internets.print(sid);
-    internets.print(F(" HTTP/1.1\r\n"));
-    internets.print(F("Host: "));
-    internets.print(hostname);
-    internets.print("\r\n");
-    internets.print(F("Origin: ArduinoSocketIOClient\r\n"));
-    internets.print(F("Sec-WebSocket-Key: "));
-    internets.print(sid);
-    internets.print("\r\n");
-    internets.print(F("Sec-WebSocket-Version: 13\r\n"));
-    internets.print(F("Upgrade: websocket\r\n")); // must be camelcase ?!
-    internets.println(F("Connection: Upgrade\r\n"));
+    String request = "";
+    request += F("GET /socket.io/1/websocket/?transport=websocket&b64=true&sid=");
+    request += sid;
+    request += F(" HTTP/1.1\r\n");
+    if (port == 80) {
+        request += F("Host: ");
+        request += hostname;
+        request += F("\r\n");
+    } else {
+        request += F("Host: ");
+        request += hostname;
+        request += F(":");
+        request += port;
+        request += F("\r\n");
+    }
+
+    request += ORIGIN;
+    request += F("Sec-WebSocket-Key: ");
+    request += sid;
+    request += F("\r\n");
+    request += F("Sec-WebSocket-Version: 13\r\n");
+    request += F("Upgrade: websocket\r\n");
+    request += F("Connection: Upgrade\r\n\r\n");
+
+    ECHO(F("\r\n[sendConnectToSocket] Send request........................."));
+    ECHO(request);
+    ECHO(F("[sendConnectToSocket] .........................send request done\r\n"));
+    internets.print(request);
 }
 
 bool SocketIOClient::connectHTTP(String thehostname, int theport) {
@@ -325,13 +358,17 @@ void SocketIOClient::eventHandler(int index) {
                     ECHO("[eventHandler] Upgrade to WebSocket confirmed");
                     break;
                 case '2':
+                    rcvdmsg.replace("\\\\", "\\");
                     id = rcvdmsg.substring(4, rcvdmsg.indexOf("\","));
+
                     ECHO("[eventHandler] id = " + id);
 
-                    data = rcvdmsg.substring(rcvdmsg.indexOf("\",") + 3, rcvdmsg.length() - 2);
+                    data = rcvdmsg.substring(2);
                     ECHO("[eventHandler] data = " + data);
 
+                    ECHO(onIndex);
                     for (uint8_t i = 0; i < onIndex; i++) {
+                        ECHO(onId[i]);
                         if (id == onId[i]) {
                             ECHO("[eventHandler] Found handler = " + String(i));
                             (*onFunction[i])(data);
@@ -369,6 +406,7 @@ bool SocketIOClient::monitor() {
     if (!internets.available()) {
         return false;
     }
+
     while (internets.available()) { // read availible internets
         readLine();
         tmp = databuffer;
@@ -386,12 +424,26 @@ bool SocketIOClient::monitor() {
 }
 
 void SocketIOClient::sendHandshake() {
-    internets.println(F("GET /socket.io/1/?transport=polling&b64=true HTTP/1.1"));
-    internets.print(F("Host: "));
-    internets.print(hostname);
-    internets.print(":");
-    internets.println(port);
-    internets.println(F("Origin: Arduino\r\n"));
+    ECHO(hostname);
+    String request = "";
+    request += F("GET /socket.io/?transport=polling&b64=true HTTP/1.1\r\n");
+    if (port == 80) {
+        request += F("Host: ");
+        request += hostname;
+        request += F("\r\n");
+    } else {
+        request += F("Host: ");
+        request += hostname;
+        request += F(":");
+        request += port;
+        request += F("\r\n");
+    }
+    request += F("Origin: Arduino\r\n");
+    request += F("Connexion: keep-alive\r\n\r\n");
+    ECHO(F("\r\n[sendHandshake] Send request........................."));
+    ECHO(request);
+    ECHO(F("[sendHandshake] .........................send request done\r\n"));
+    internets.print(request);
 }
 
 bool SocketIOClient::waitForInput(void) {
@@ -411,53 +463,88 @@ void SocketIOClient::eatHeader(void) {
     }
 }
 
-void SocketIOClient::getREST(String path) {
-    String message = "GET /" + path + "/ HTTP/1.1";
-    internets.println(message);
-    internets.print(F("Host: "));
-    internets.println(hostname);
-    internets.println(F("Origin: Arduino"));
-    internets.println(F("Connection: close\r\n"));
+void SocketIOClient::getREST(String host, String path) {
+    String request = "";
+    request += F("GET /");
+    request += path;
+    request += F("/ HTTP/1.1\r\n");
+    request += F("Host: ");
+    request += host;
+    request += F("\r\n");
+    request += ORIGIN;
+    request += F("Connection: close\r\n\r\n");
+
+    ECHO(F("\r\n[getREST] Send request........................."));
+    ECHO(request);
+    ECHO(F("[getREST] .........................send request done\r\n"));
+    internets.print(request);
 }
 
-void SocketIOClient::postREST(String path, String type, String data) {
-    String message = "POST /" + path + "/ HTTP/1.1";
-    internets.println(message);
-    internets.print(F("Host: "));
-    internets.println(hostname);
-    internets.println(F("Origin: Arduino"));
-    internets.println(F("Connection: close\r\n"));
-    internets.print(F("Content-Length: "));
-    internets.println(data.length());
-    internets.print(F("Content-Type: "));
-    internets.println(type);
-    internets.println("\r\n");
-    internets.println(data);
+void SocketIOClient::postREST(String host, String path, String type, String data) {
+    String request = "";
+    request += F("POST /");
+    request += path;
+    request += F("/ HTTP/1.1\r\n");
+    request += F("Host: ");
+    request += host;
+    request += F("\r\n");
+    request += ORIGIN;
+    request += F("Content-Length: ");
+    request += data.length();
+    request += F("\r\n");
+    request += F("Content-Type: ");
+    request += type;
+    request += F("\r\n");
+    request += F("Connection: close\r\n\r\n");
+    request += data;
+    request += F("\r\n");
 
+    ECHO(F("\r\n[postREST] Send request........................."));
+    ECHO(request);
+    ECHO(F("[postREST] .........................send request done\r\n"));
+    internets.print(request);
 }
 
-void SocketIOClient::putREST(String path, String type, String data) {
-    String message = "PUT /" + path + "/ HTTP/1.1";
-    internets.println(message);
-    internets.print(F("Host: "));
-    internets.println(hostname);
-    internets.println(F("Origin: Arduino"));
-    internets.println(F("Connection: close\r\n"));
-    internets.print(F("Content-Length: "));
-    internets.println(data.length());
-    internets.print(F("Content-Type: "));
-    internets.println(type);
-    internets.println("\r\n");
-    internets.println(data);
+void SocketIOClient::putREST(String host, String path, String type, String data) {
+    String request = "";
+    request += F("PUT /");
+    request += path;
+    request += F("/ HTTP/1.1\r\n");
+    request += F("Host: ");
+    request += host;
+    request += F("\r\n");
+    request += ORIGIN;
+    request += F("Content-Length: ");
+    request += data.length();
+    request += F("\r\n");
+    request += F("Content-Type: ");
+    request += type;
+    request += F("\r\n");
+    request += F("Connection: close\r\n\r\n");
+    request += data;
+    request += F("\r\n");
+
+    ECHO(F("\r\n[putREST] Send request........................."));
+    ECHO(request);
+    ECHO(F("[putREST] .........................send request done\r\n"));
+    internets.print(request);
 }
 
 void SocketIOClient::deleteREST(String path) {
-    String message = "DELETE /" + path + "/ HTTP/1.1";
-    internets.println(message);
-    internets.print(F("Host: "));
-    internets.println(hostname);
-    internets.println(F("Origin: Arduino"));
-    internets.println(F("Connection: close\r\n"));
+    String request = "";
+    request += F("DELETE /");
+    request += path;
+    request += F("/ HTTP/1.1\r\n");
+    request += F("Host: ");
+    request += hostname;
+    request += F("\r\n");
+    request += ORIGIN;
+    request += F("Connection: close\r\n\r\n");
+
+    ECHO(F("\r\n[deleteREST] Send request........................."));
+    ECHO(request);
+    ECHO(F("[deleteREST] .........................send request done\r\n"));
+    internets.print(request);
 }
 
 void SocketIOClient::readLine() {

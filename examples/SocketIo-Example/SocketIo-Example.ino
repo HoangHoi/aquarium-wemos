@@ -14,8 +14,8 @@ const char* password = "!@#$%^&*o9";
 
 const char HexLookup[17] = "0123456789ABCDEF";
 
-String host = "192.168.2.108";
-int port = 3484;
+String host = "aquarium-server.herokuapp.com";
+int port = 80;
 bool clicked = false;
 
 SocketIOClient socket;
