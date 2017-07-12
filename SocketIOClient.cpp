@@ -68,6 +68,7 @@ bool SocketIOClient::handshake() {
     }
 
     ECHO(F("[handshake] Begin send Handshake"));
+    ECHO("[handshake] Server: " + String(hostname));
     sendHandshake();
 
     if (!waitForInput()) {
@@ -530,7 +531,7 @@ void SocketIOClient::putREST(String host, String path, String type, String data)
     internets.print(request);
 }
 
-void SocketIOClient::deleteREST(String path) {
+void SocketIOClient::deleteREST(String host, String path) {
     String request = "";
     request += F("DELETE /");
     request += path;

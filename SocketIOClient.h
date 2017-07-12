@@ -87,37 +87,39 @@ public:
     void emit(String id, String data);
     void on(String id, functionPointer f);
     void heartbeat(int select);
-    void getREST(String path);
-    void postREST(String path, String type, String data);
-    void putREST(String path, String type, String data);
-    void deleteREST(String path);
+    void getREST(String host, String path);
+    void postREST(String host, String path, String type, String data);
+    void putREST(String host, String path, String type, String data);
+    void deleteREST(String host, String path);
 private:
     bool checkResponseStatus(int status);
-    bool readSid();
+
     bool stopConnect();
     bool beginConnect();
+    bool readSid();
+
     void eventHandler(int index);
     bool handshake();
     void sendHandshake();
-    
+    bool readHandshake();
+
     bool connectViaSocket();
     bool joinChannel();
     void sendRequestJoinChannel();
     void sendConnectToSocket();
-    
+
+    void readLine();
+    bool waitForInput(void);
+    void eatHeader(void);
+
     //EthernetClient internets;				//For ENC28J60 or W5100
     WiFiClient internets; //For ESP8266
-    bool readHandshake();
-    void readLine();
     char *dataptr;
     char databuffer[DATA_BUFFER_LEN];
     char sid[SID_LEN];
     char key[28];
     char hostname[128];
     int port;
-
-    bool waitForInput(void);
-    void eatHeader(void);
 
     functionPointer onFunction[MAX_ON_HANDLERS];
     String onId[MAX_ON_HANDLERS];

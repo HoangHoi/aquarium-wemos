@@ -14,8 +14,8 @@ const char* password = "!@#$%^&*o9";
 
 const char HexLookup[17] = "0123456789ABCDEF";
 
-String host = "aquarium-server.herokuapp.com";
-int port = 80;
+String host = "192.168.2.109";
+int port = 3000;
 bool clicked = false;
 
 SocketIOClient socket;
@@ -82,6 +82,7 @@ void setup() {
     socket.on("App\\Events\\FeedTheFish", light);
 
     socket.connect(host, port);
+    socket.emit("room", "led-room");
 }
 
 void clickCheck() {
