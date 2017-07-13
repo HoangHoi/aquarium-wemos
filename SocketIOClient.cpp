@@ -585,40 +585,43 @@ void SocketIOClient::emit(String id, String data) {
         masked[i] = message[i] ^ mask[i % 4];
     }
 
-    internets.print((char) header[0]); // has to be sent for proper communication
+    String request = "";
+//    internets.print((char) header[0]); // has to be sent for proper communication
+    request += String((char) header[0]); // has to be sent for proper communication
     // Depending on the size of the message
     if (msglength <= 125) {
         header[1] = msglength + 128;
-        internets.print((char) header[1]); //size of the message + 128 because message has to be masked
+        request += String((char) header[1]); //size of the message + 128 because message has to be masked
     } else if (msglength >= 126 && msglength <= 65535) {
         header[1] = 126 + 128;
-        internets.print((char) header[1]);
+        request += String((char) header[1]);
         header[2] = (msglength >> 8) & 255;
-        internets.print((char) header[2]);
+        request += String((char) header[2]);
         header[3] = (msglength)& 255;
-        internets.print((char) header[3]);
+        request += String((char) header[3]);
     } else {
         header[1] = 127 + 128;
-        internets.print((char) header[1]);
+        request += String((char) header[1]);
         header[2] = (msglength >> 56) & 255;
-        internets.print((char) header[2]);
+        request += String((char) header[2]);
         header[3] = (msglength >> 48) & 255;
-        internets.print((char) header[4]);
+        request += String((char) header[4]);
         header[4] = (msglength >> 40) & 255;
-        internets.print((char) header[4]);
+        request += String((char) header[4]);
         header[5] = (msglength >> 32) & 255;
-        internets.print((char) header[5]);
+        request += String((char) header[5]);
         header[6] = (msglength >> 24) & 255;
-        internets.print((char) header[6]);
+        request += String((char) header[6]);
         header[7] = (msglength >> 16) & 255;
-        internets.print((char) header[7]);
+        request += String((char) header[7]);
         header[8] = (msglength >> 8) & 255;
-        internets.print((char) header[8]);
+        request += String((char) header[8]);
         header[9] = (msglength)& 255;
-        internets.print((char) header[9]);
+        request += String((char) header[9]);
     }
-    internets.print(mask);
-    internets.print(masked);
+    request += String(mask);
+    request += String(masked);
+    internets.print(request);
 }
 
 void SocketIOClient::heartbeat(int select) {
@@ -640,10 +643,13 @@ void SocketIOClient::heartbeat(int select) {
     for (int i = 0; i < message.length(); i++) {
         masked[i] = message[i] ^ mask[i % 4]; //apply the "mask" to the message ("2" : ping or "3" : pong)
     }
-    internets.print((char) 0x81); //has to be sent for proper communication
-    internets.print((char) 129); //size of the message (1) + 128 because message has to be masked
-    internets.print(mask);
-    internets.print(masked);
+    
+    String request = "";
+    request += String((char) 0x81); //has to be sent for proper communication
+    request += String((char) 129); //size of the message (1) + 128 because message has to be masked
+    request += String(mask);
+    request += String(masked);
+    internets.print(request);
 }
 
 void SocketIOClient::on(String id, functionPointer function) {
